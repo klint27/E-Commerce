@@ -1,18 +1,19 @@
 import asyncHandler from 'express-async-handler'
 import Product from '../models/productModel.js'
+import Order from '../models/orderModel.js'
 
 // @desc    Fetch all products
 // @route   GET /api/products
 // @access  Public
 const getProducts = asyncHandler(async (req, res) => {
-	const pageSize = 8
+	const pageSize = 10
 	const page = Number(req.query.pageNumber) || 1
 
-	const keyword = req.query.keyword //Find what comes after the possible '?' inside the path
+	const keyword = req.query.keyword
 		? {
 				name: {
 					$regex: req.query.keyword,
-					$options: 'i', //case insensitive
+					$options: 'i',
 				},
 		  }
 		: {}
@@ -107,7 +108,7 @@ const updateProduct = asyncHandler(async (req, res) => {
 	}
 })
 
-// @desc    Create a new review
+// @desc    Create new review
 // @route   POST /api/products/:id/reviews
 // @access  Private
 const createProductReview = asyncHandler(async (req, res) => {
@@ -115,7 +116,28 @@ const createProductReview = asyncHandler(async (req, res) => {
 
 	const product = await Product.findById(req.params.id)
 
+	// Bring in user orders to check if they ordered the product
+	const orders = await Order.find({ user: req.user._id })
+
+	// Array of product ids that the user ordered
+	const ordersItems = [].concat.apply(
+		[],
+		orders.map((order) =>
+			order.orderItems.map((item) => item.product.toString())
+		)
+	)
+
+	console.log(ordersItems)
+
 	if (product) {
+		// Check if the id of the product matches any of the users ordered products
+		const hasBought = ordersItems.includes(product._id.toString())
+
+		if (!hasBought) {
+			res.status(400)
+			throw new Error('You can review only products you have already bought')
+		}
+
 		const alreadyReviewed = product.reviews.find(
 			(r) => r.user.toString() === req.user._id.toString()
 		)
@@ -138,13 +160,13 @@ const createProductReview = asyncHandler(async (req, res) => {
 
 		product.rating =
 			product.reviews.reduce((acc, item) => item.rating + acc, 0) /
-			product.numReviews
+			product.reviews.length
 
 		await product.save()
-		res.status(201).json({ message: 'Reviews added' })
+		res.status(201).json({ message: 'Review added' })
 	} else {
 		res.status(404)
-		throw new Error('Product not found')
+		throw new Error('Product not found!')
 	}
 })
 
